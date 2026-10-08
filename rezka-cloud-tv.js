@@ -22,7 +22,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.0.3-cloud',
+        version: '1.0.4-cloud',
         name: 'HDREZKA',
         description: 'Просмотр фильмов и сериалов с HDREZKA по личному аккаунту',
         component: 'rezka_online'
@@ -251,7 +251,7 @@
      *  Search on HDREZKA
      *  GET /engine/ajax/search.php?q=<title>
      * ==================================================== */
-    function searchRezka(query, year, cb) {
+    function searchRezka(query, year, cb, err) {
         var url = proxify(getDomain() + '/engine/ajax/search.php?q=' + encodeURIComponent(query));
         request({ url: url }, function (html) {
             // <li><a href="..."><span class="enty">Title</span> (Original, 2023)<span class="rating">8.50</span></a></li>
@@ -284,7 +284,7 @@
                 if (exact.length) items = exact;
             }
             cb(items);
-        }, function () { cb([]); });
+        }, function (error) { if (err) err('Поиск: ' + networkError(error)); else cb([]); });
     }
 
     /* ====================================================
@@ -373,7 +373,7 @@
             } else {
                 err && err('Не удалось распарсить страницу');
             }
-        }, function () { err && err('Сетевая ошибка'); });
+        }, function (error) { err && err('Страница фильма: ' + networkError(error)); });
     }
 
     /* ====================================================
@@ -425,6 +425,10 @@
     /* ====================================================
      *  Lampa Online component
      * ==================================================== */
+    function escapeHtml(value) {
+        return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function component(object) {
         var network = new Lampa.Reguest();
         var scroll = new Lampa.Scroll({ mask: true, over: true });
@@ -489,7 +493,8 @@
 
         // search & render flow ---------------------------------
         function showError(msg) {
-            var empty = new Lampa.Empty({ text: msg });
+            html.empty();
+            var empty = new Lampa.Empty({ title: 'HDREZKA', descr: msg, text: msg });
             html.append(empty.render());
             scroll.append(html);
         }
@@ -510,8 +515,8 @@
             }
 
             items.forEach(function (ep) {
-                var item = $('<div class="online"><div class="online__title">' + Lampa.Utils.escape(ep.name) +
-                    '</div><div class="online__quality">' + Lampa.Utils.escape(voice.name) + '</div></div>');
+                var item = $('<div class="online"><div class="online__title">' + escapeHtml(ep.name) +
+                    '</div><div class="online__quality">' + escapeHtml(voice.name) + '</div></div>');
                 item.on('hover:enter', function () {
                     Lampa.Modal.open({
                         title: 'HDREZKA',
@@ -563,8 +568,8 @@
             filter.onSelect = function (type, a, b) {
                 if (a.stype) {
                     state.choice[a.stype] = b.index;
-                    buildFilter();
-                    buildList();
+                    try { buildFilter(); buildList(); }
+                    catch (error) { showError('Список фильма: ' + error.message); }
                 }
             };
         }
@@ -573,7 +578,7 @@
             this.activity.loader(true);
 
             var movie = object.movie || {};
-            var title = movie.title || movie.name || '';
+            var title = object.search || movie.title || movie.name || '';
             var year = (movie.release_date || movie.first_air_date || '').slice(0, 4);
 
             searchRezka(title, year, function (results) {
@@ -586,14 +591,18 @@
                 fetchFilmPage(results[0].url, function (info) {
                     state.info = info;
                     self.activity.loader(false);
-                    buildFilter();
-                    buildList();
+                    try { buildFilter(); buildList(); }
+                    catch (error) { showError('Список фильма: ' + error.message); }
                     self.activity.toggle();
                 }, function (msg) {
                     self.activity.loader(false);
                     showError(msg);
                     self.activity.toggle();
                 });
+            }, function (msg) {
+                self.activity.loader(false);
+                showError(msg);
+                self.activity.toggle();
             });
         };
     }
@@ -665,7 +674,7 @@
                 '<span>HDREZKA</span>';
 
             var btn = $(
-                '<div class="full-start__button selector view--online view--rezka">' + label + '</div>'
+                '<div class="full-start__button selector view--rezka">' + label + '</div>'
             );
 
             btn.on('hover:enter', function () { openRezka(e.data.movie); });
@@ -703,7 +712,7 @@
     function addSettings() {
         Lampa.SettingsApi.addComponent({
             component: 'rezka',
-            name: 'HDREZKA · Cloud 1.0.3',
+            name: 'HDREZKA · Cloud 1.0.4',
             icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
                 '<path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2"/>' +
                 '<path d="M9 8l6 4-6 4V8z" fill="currentColor"/></svg>'
@@ -803,7 +812,7 @@
         registerComponent();
         try { addOnlineSource(); } catch (e) { console.log('REZKA online integration:', e.message); }
         try { addCardButton(); } catch (e) { console.log('REZKA card integration:', e.message); }
-        Lampa.Noty.show('HDREZKA Cloud 1.0.3: меню зарегистрировано');
+        Lampa.Noty.show('HDREZKA Cloud 1.0.4: меню зарегистрировано');
     }
 
     var bootstrapAttempts = 0;
@@ -815,7 +824,7 @@
             try { startPlugin(); }
             catch (e) {
                 console.log('REZKA startup:', e.message);
-                Lampa.Noty.show('HDREZKA Cloud 1.0.3: ошибка запуска: ' + e.message);
+                Lampa.Noty.show('HDREZKA Cloud 1.0.4: ошибка запуска: ' + e.message);
             }
             return;
         }
