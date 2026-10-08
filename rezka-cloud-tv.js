@@ -22,7 +22,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.0.5-cloud',
+        version: '1.0.6-cloud',
         name: 'HDREZKA',
         description: 'Просмотр фильмов и сериалов с HDREZKA по личному аккаунту',
         component: 'rezka_online'
@@ -200,8 +200,23 @@
                 error({status: xhr.status, cloudMessage: envelope.error === 'unauthorized' ? 'Неверный ключ прокси' : envelope.error}); return;
             }
             if (envelope.redirected || envelope.upstreamStatus < 200 || envelope.upstreamStatus >= 300) {
-                error({status: envelope.upstreamStatus}); return;
+                if (envelope.upstreamStatus === 500 && !opts.post && !opts.retried500 &&
+                    /^\/(?:films|series|cartoons|animation)\//.test(path)) {
+                    var retry = {url: opts.url, dataType: opts.dataType, retried500: true,
+                        sessionCookie: getCookie().split(';').filter(function (part) {
+                            return !/^PHPSESSID=/i.test(part.trim());
+                        }).join('; ')};
+                    request(retry, success, error);
+                    return;
+                }
+                var body = String(envelope.body || '');
+                var detail = body.match(/<[^>]+class=["'][^"']*error-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i) || body.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+                var message = 'HTTP ' + envelope.upstreamStatus;
+                if (detail) message += ' · ' + detail[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+                if (opts.retried500) message += ' · повтор без старой PHP-сессии';
+                error({status: envelope.upstreamStatus, cloudMessage: message}); return;
             }
+            if (typeof opts.sessionCookie === 'string') Lampa.Storage.set(STORAGE.cookie, opts.sessionCookie);
             saveCloudCookies(envelope.setCookie);
             var result = envelope.body;
             if (opts.dataType === 'json') {
@@ -213,7 +228,7 @@
         xhr.onerror = function () { error({status: 0}); };
         xhr.ontimeout = function () { error({cloudMessage: 'Прокси не ответил вовремя'}); };
         xhr.send(JSON.stringify({path: path, method: opts.post ? 'POST' : 'GET',
-            body: opts.post || '', cookie: getCookie()}));
+            body: opts.post || '', cookie: typeof opts.sessionCookie === 'string' ? opts.sessionCookie : getCookie()}));
         return xhr;
     }
 
@@ -728,7 +743,7 @@
     function addSettings() {
         Lampa.SettingsApi.addComponent({
             component: 'rezka',
-            name: 'HDREZKA · Cloud 1.0.5',
+            name: 'HDREZKA · Cloud 1.0.6',
             icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
                 '<path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2"/>' +
                 '<path d="M9 8l6 4-6 4V8z" fill="currentColor"/></svg>'
@@ -828,7 +843,7 @@
         registerComponent();
         try { addOnlineSource(); } catch (e) { console.log('REZKA online integration:', e.message); }
         try { addCardButton(); } catch (e) { console.log('REZKA card integration:', e.message); }
-        Lampa.Noty.show('HDREZKA Cloud 1.0.5: меню зарегистрировано');
+        Lampa.Noty.show('HDREZKA Cloud 1.0.6: меню зарегистрировано');
     }
 
     var bootstrapAttempts = 0;
@@ -840,7 +855,7 @@
             try { startPlugin(); }
             catch (e) {
                 console.log('REZKA startup:', e.message);
-                Lampa.Noty.show('HDREZKA Cloud 1.0.5: ошибка запуска: ' + e.message);
+                Lampa.Noty.show('HDREZKA Cloud 1.0.6: ошибка запуска: ' + e.message);
             }
             return;
         }
