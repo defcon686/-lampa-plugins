@@ -22,7 +22,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.0.4-cloud',
+        version: '1.0.5-cloud',
         name: 'HDREZKA',
         description: 'Просмотр фильмов и сериалов с HDREZKA по личному аккаунту',
         component: 'rezka_online'
@@ -252,39 +252,55 @@
      *  GET /engine/ajax/search.php?q=<title>
      * ==================================================== */
     function searchRezka(query, year, cb, err) {
-        var url = proxify(getDomain() + '/engine/ajax/search.php?q=' + encodeURIComponent(query));
-        request({ url: url }, function (html) {
-            // <li><a href="..."><span class="enty">Title</span> (Original, 2023)<span class="rating">8.50</span></a></li>
+        function normalize(value) {
+            return String(value || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+        }
+        function select(items) {
+            var title = normalize(query);
+            var exact = items.filter(function (item) {
+                return normalize(item.title) === title && (!year || item.year === String(year));
+            });
+            if (!exact.length) exact = items.filter(function (item) {
+                return String(item.title || '').split(' / ').some(function (name) { return normalize(name) === title; }) && (!year || item.year === String(year));
+            });
+            return exact;
+        }
+        function parse(html, full) {
+            if (/<(?:form|input)[^>]+(?:id|name)=["'](?:check-form|login_name)["']/i.test(html)) {
+                throw new Error('Сессия не принята сайтом. Нажмите «Войти в аккаунт» в настройках HDREZKA.');
+            }
             var div = document.createElement('div');
             div.innerHTML = html;
             var items = [];
-            Array.prototype.forEach.call(div.querySelectorAll('a'), function (a) {
-                var href = a.getAttribute('href');
-                if (!href || href.indexOf('search') !== -1) return;
-                // Основное название — из .enty (русский вариант)
-                var entyEl = a.querySelector('.enty');
-                var title = entyEl ? (entyEl.textContent || '').trim() : '';
-                // Полный текст (содержит и оригинал, и год, и рейтинг)
-                var fullText = (a.textContent || '').trim();
-                if (!title) {
-                    // без .enty — берём всю строку до «(слово, год)»
-                    title = fullText.replace(/\s*\([^)]*\d{4}\)[\s\S]*$/, '').trim();
-                }
-                // Год — из любого вхождения (4 цифры 19xx/20xx)
-                var ym = fullText.match(/\b(19|20)\d{2}\b/);
-                items.push({
-                    url: href,
-                    title: title,
-                    year: ym ? ym[0] : ''
-                });
+            var nodes = div.querySelectorAll(full ? '.b-content__inline_item-link' : 'li');
+            Array.prototype.forEach.call(nodes, function (node) {
+                var anchor = node.querySelector('a');
+                if (!anchor) return;
+                var href = anchor.getAttribute('href') || '';
+                if (!/\/(films|series|cartoons|animation)\//.test(href)) return;
+                if (href.charAt(0) === '/') href = getDomain() + href;
+                var enty = anchor.querySelector('.enty');
+                var text = (node.textContent || '').trim();
+                var title = full ? (anchor.textContent || '').trim() : enty ? (enty.textContent || '').trim() : (anchor.textContent || '').replace(/\s*\([^)]*\d{4}\)[\s\S]*$/, '').trim();
+                var ym = text.match(/\b(?:19|20)\d{2}\b/);
+                items.push({url: href, title: title, year: ym ? ym[0] : ''});
             });
-            // если знаем год — предпочитаем точное совпадение
-            if (year) {
-                var exact = items.filter(function (i) { return i.year == String(year); });
-                if (exact.length) items = exact;
-            }
-            cb(items);
-        }, function (error) { if (err) err('Поиск: ' + networkError(error)); else cb([]); });
+            return select(items);
+        }
+        function fail(error) { if (err) err('Поиск: ' + networkError(error)); else cb([]); }
+        function fullSearch() {
+            request({url: getDomain() + '/search/?do=search&subaction=search&q=' + encodeURIComponent(query)}, function (html) {
+                try { cb(parse(html, true)); }
+                catch (error) { fail({cloudMessage: error.message}); }
+            }, fail);
+        }
+        request({url: getDomain() + '/engine/ajax/search.php', post: 'q=' + encodeURIComponent(query)}, function (html) {
+            try {
+                var items = parse(html, false);
+                if (items.length) cb(items);
+                else fullSearch();
+            } catch (error) { fail({cloudMessage: error.message}); }
+        }, fail);
     }
 
     /* ====================================================
@@ -712,7 +728,7 @@
     function addSettings() {
         Lampa.SettingsApi.addComponent({
             component: 'rezka',
-            name: 'HDREZKA · Cloud 1.0.4',
+            name: 'HDREZKA · Cloud 1.0.5',
             icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
                 '<path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2"/>' +
                 '<path d="M9 8l6 4-6 4V8z" fill="currentColor"/></svg>'
@@ -812,7 +828,7 @@
         registerComponent();
         try { addOnlineSource(); } catch (e) { console.log('REZKA online integration:', e.message); }
         try { addCardButton(); } catch (e) { console.log('REZKA card integration:', e.message); }
-        Lampa.Noty.show('HDREZKA Cloud 1.0.4: меню зарегистрировано');
+        Lampa.Noty.show('HDREZKA Cloud 1.0.5: меню зарегистрировано');
     }
 
     var bootstrapAttempts = 0;
@@ -824,7 +840,7 @@
             try { startPlugin(); }
             catch (e) {
                 console.log('REZKA startup:', e.message);
-                Lampa.Noty.show('HDREZKA Cloud 1.0.4: ошибка запуска: ' + e.message);
+                Lampa.Noty.show('HDREZKA Cloud 1.0.5: ошибка запуска: ' + e.message);
             }
             return;
         }
